@@ -1,0 +1,18 @@
+---
+title: "HW_KNN"
+author: "Riccardo Cappi"
+date: "2024-03-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### KNN Homework
+```{r}
+#TODO:
+# - Feature engineering to reduce the feature dimensionality.
+# - Perform k-fold cross-validation choosing a k value
+# - Perform KNN on training set and on cross-validation set, by increasing K.
+```
