@@ -2,7 +2,9 @@
 title: "HW_KNN"
 author: "Riccardo Cappi"
 date: "2024-03-27"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -16,3 +18,97 @@ knitr::opts_chunk$set(echo = TRUE)
 # - Perform k-fold cross-validation choosing a k value
 # - Perform KNN on training set and on cross-validation set, by increasing K.
 ```
+
+## Importing required libraries
+```{r}
+library(caret)
+library(ggplot2)
+# library(class)
+library(FNN)
+```
+
+## Import dataset
+```{r}
+data = read.csv("wineq_train.csv")
+summary(data)
+```
+
+## Feture engineering
+```{r}
+# TODO: feature engineering
+
+X <- data[, -12]
+y <- data$quality
+
+X <- as.data.frame(scale(X)) #scaling data
+```
+
+## RMSE function
+```{r}
+RMSE <- function(y_true, y_pred){
+  return(sqrt(mean((y_true - y_pred)^2)))
+}
+```
+
+## KNN function
+```{r}
+fit_knn <- function(X_train, y_train, X_test, k_val){
+  y_hat = knn.reg(train = X_train, test=X_test, y=y_train, k = k_val)
+  y_hat = y_hat$pred
+  return(y_hat)
+}
+```
+
+
+## Fit KNN on training set
+```{r}
+k_range = seq(1, 50, by = 1)
+train_rmse <- c()
+for (k in k_range){
+  y_hat = fit_knn(X, y, X, k)
+  train_rmse <- append(train_rmse, RMSE(y, y_hat))
+}
+train_rmse
+```
+
+
+## k-fold cross validation
+```{r}
+set.seed(42)
+folds <- createFolds(y, k = 5, list = TRUE)
+cv_rmse <- c()
+
+for (k in k_range){
+  cv_rmse_fold <- c()
+  for (i in 1:length(folds)) {
+    #unlist function flatten the list. Remember that folds is a list of lists
+    train_indexes <- unlist(folds[-i]) 
+    test_indexes <- unlist(folds[i])
+    
+    X_train <- X[train_indexes, ]
+    y_train <- y[train_indexes]
+    X_test <- X[test_indexes, ]
+    y_test <- y[test_indexes]
+    
+    y_hat <- fit_knn(X_train, y_train, X_test, k)
+    cv_rmse_fold <- append(cv_rmse_fold, RMSE(y_test, y_hat))
+  }
+  cv_rmse <- append(cv_rmse, mean(cv_rmse_fold))
+}
+cv_rmse
+```
+## Plots
+```{r}
+results <- data.frame(k = k_range, train_rmse = train_rmse, cv_rmse = cv_rmse)
+ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
+  geom_line() +
+  geom_point() +
+  geom_line(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
+  geom_point(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
+  scale_x_continuous(labels = scales::scientific_format()) +
+  labs(x = "log (1/K) (K of KNN)", y = "RMSE", color = "Data") +
+  theme_minimal()
+```
+## TODO: test the model with the lowest cv error
+
+
