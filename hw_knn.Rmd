@@ -25,22 +25,79 @@ library(caret)
 library(ggplot2)
 # library(class)
 library(FNN)
+library(reshape2)
 ```
 
 ## Import dataset
 ```{r}
+validation_data <- read.csv("wineq_validation.csv") 
 data = read.csv("wineq_train.csv")
 summary(data)
+print('')
+print('correlation Matrix values:')
+corr <- round(cor(data), 2)
+corr
+print('')
+print('correlation matrixheatmap:')
+melted_cormat <- melt(corr)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
+  geom_tile(color = "white")+
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+    midpoint = 0, limit = c(-1,1), space = "Lab", 
+    name="Correlation") +
+   theme_minimal()+ 
+  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+     size = 12, hjust = 1))+
+  coord_fixed()
+
+
 ```
+
+###The most correlated pairs are: 
+density : residual.sugar      0.84
+density : alcohol          -0.78
+free.sulfur.dioxide : total.sulfur.dioxide  0.63
+total.sulfur.dioxide : density    0.54
+residual.sugar : alcohol       -0.46
+total.sulfur.dioxide : alcohol   -0.46
+pH : fixed.acidity      -0.41
+
+
+###features with almost no correlation with quality:
+citric.acid      -0.01
+free.sulfur.dioxide  0.01
+sulphates    0.05
+pH      0.10
+residual.sugar  -0.10
+fixed.acidity   -0.11
+
+
 
 ## Feture engineering
 ```{r}
 # TODO: feature engineering
-
+transform_data <- function(X){
+  
+  X <- X[,!(names(X) %in% omitted_features) ]
+  #X <- predict(pca, newdata = X)[, 1:9]
+  return(X)
+}
+compute_pca <- function(X){
+  X <- X[,!(names(X) %in% omitted_features) ]
+pca <- prcomp(X, scale. = TRUE)
+print('proportion of variance')
+print(summary(pca)$importance[2,])
+print('cumulativ variance')
+print(summary(pca)$importance[3,])
+}
+omitted_features <- c("citric.acid")
 X <- data[, -12]
 y <- data$quality
-
 X <- as.data.frame(scale(X)) #scaling data
+pca <- compute_pca(X)
+X <- transform_data(X)
+summary(X)
+X_val <- transform_data(validation_data)
 ```
 
 ## RMSE function
@@ -58,6 +115,9 @@ fit_knn <- function(X_train, y_train, X_test, k_val){
   return(y_hat)
 }
 ```
+
+
+
 
 
 ## Fit KNN on training set
@@ -97,6 +157,9 @@ for (k in k_range){
 }
 cv_rmse
 ```
+
+
+
 ## Plots
 ```{r}
 results <- data.frame(k = k_range, train_rmse = train_rmse, cv_rmse = cv_rmse)
@@ -108,7 +171,40 @@ ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
   scale_x_continuous(labels = scales::scientific_format()) +
   labs(x = "log (1/K) (K of KNN)", y = "RMSE", color = "Data") +
   theme_minimal()
+
 ```
+## Best k
+```{r}
+
+minimum <- min(cv_rmse)
+print(paste('min cv_rmse:',minimum))
+print(paste('          k:', match( minimum , cv_rmse)+1))
+
+```
+
+
 ## TODO: test the model with the lowest cv error
 
+### Just scaled data with no change
+[1] "min cv_rmse: 0.706715970421997"
+[1] "          k: 12"
 
+### scaled, without citric acid 
+[1] "min cv_rmse: 0.703730059806565"
+[1] "          k: 15"
+
+### scaled, without citric.acid and free.sulfur.dioxide
+[1] "min cv_rmse: 0.720682765728945"
+[1] "          k: 11"
+
+### scaled, without density 
+[1] "min cv_rmse: 0.708451354386089"
+[1] "          k: 8"
+
+### scaled, without residual.sugar
+[1] "min cv_rmse: 0.705753479671869"
+[1] "          k: 17"
+
+### scaled, without citric acid, PCA with first 9 of 10 components (Best)
+[1] "min cv_rmse: 0.703534208790268"
+[1] "          k: 15"
