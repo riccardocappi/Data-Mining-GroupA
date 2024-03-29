@@ -134,35 +134,41 @@ train_rmse
 
 ## k-fold cross validation
 ```{r}
-set.seed(42)
-folds <- createFolds(y, k = 5, list = TRUE)
-cv_rmse <- c()
-
-for (k in k_range){
-  cv_rmse_fold <- c()
-  for (i in 1:length(folds)) {
-    #unlist function flatten the list. Remember that folds is a list of lists
-    train_indexes <- unlist(folds[-i]) 
-    test_indexes <- unlist(folds[i])
-    
-    X_train <- X[train_indexes, ]
-    y_train <- y[train_indexes]
-    X_test <- X[test_indexes, ]
-    y_test <- y[test_indexes]
-    
-    y_hat <- fit_knn(X_train, y_train, X_test, k)
-    cv_rmse_fold <- append(cv_rmse_fold, RMSE(y_test, y_hat))
+k_fold_cv <- function(X, y){
+  set.seed(42)
+  folds <- createFolds(y, k = 5, list = TRUE)
+  cv_rmse <- c()
+  
+  for (k in k_range){
+    cv_rmse_fold <- c()
+    for (i in 1:length(folds)) {
+      #unlist function flatten the list. Remember that folds is a list of lists
+      train_indexes <- unlist(folds[-i]) 
+      test_indexes <- unlist(folds[i])
+      
+      X_train <- X[train_indexes, ]
+      y_train <- y[train_indexes]
+      X_test <- X[test_indexes, ]
+      y_test <- y[test_indexes]
+      
+      y_hat <- fit_knn(X_train, y_train, X_test, k)
+      cv_rmse_fold <- append(cv_rmse_fold, RMSE(y_test, y_hat))
+    }
+    cv_rmse <- append(cv_rmse, mean(cv_rmse_fold))
   }
-  cv_rmse <- append(cv_rmse, mean(cv_rmse_fold))
+  results <- data.frame(k = k_range, train_rmse = train_rmse, cv_rmse = cv_rmse)
+  return(results)
+  
 }
-cv_rmse
+# The results of k-fold cv are returned as a dataframe.
+results <- k_fold_cv(X, y)
+str(results)
 ```
 
 
 
 ## Plots
 ```{r}
-results <- data.frame(k = k_range, train_rmse = train_rmse, cv_rmse = cv_rmse)
 ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
   geom_line() +
   geom_point() +
@@ -175,7 +181,7 @@ ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
 ```
 ## Best k
 ```{r}
-
+cv_rmse = results$cv_rmse
 minimum <- min(cv_rmse)
 print(paste('min cv_rmse:',minimum))
 print(paste('          k:', match( minimum , cv_rmse)+1))
