@@ -82,8 +82,8 @@ filtered_pairs$pair <- apply(filtered_pairs[, c("Var1", "Var2")], 1, function(x)
 # Remove duplicates based on the sorted pair
 filtered_pairs <- filtered_pairs[!duplicated(filtered_pairs$pair),]
 
-# Sort by absolute correlation value
-filtered_pairs <- filtered_pairs[order(abs(filtered_pairs$value), decreasing = TRUE),]
+# Sort by correlation value
+filtered_pairs <- filtered_pairs[order(filtered_pairs$value, decreasing = TRUE),]
 
 filtered_pairs$pair <- NULL # to remove irrelevant column created
 rownames(filtered_pairs) <- NULL # to remove indexes for the values from the last matrix
@@ -92,100 +92,54 @@ rownames(filtered_pairs) <- NULL # to remove indexes for the values from the las
 head(filtered_pairs,10)
 ```
 
-### Features with almost no correlation with quality:
+### Least correlated features with quality:
 
 ```{r}
 # Calculate correlation between features and "quality" except for the pair "quality-quality"
 quality_correlation <- cor(data$quality, data[, -which(names(data) == "quality")])
+least_correlated_indexes <- order(quality_correlation)
 
-# Pick the names of the top 5 least correlated features in absolute value
-least_correlated_features <- names(data)[order(abs(quality_correlation))[1:10]]
+# Pick the names of the top least correlated features
+least_correlated_features <- names(data)[least_correlated_indexes]
 
 # Create a data frame with feature names and their correlation values
-result_df <- data.frame(Feature = least_correlated_features, Value = quality_correlation[order(round(abs(quality_correlation),2))[1:10]])
+result_df <- data.frame(Feature = least_correlated_features, Value = quality_correlation[least_correlated_indexes])
 
 head(result_df,10)
 ```
 
-## Feature engineering
-```{r}
-# Remove features
-rm_feature <- function(X,omitted_features){
-  X <- X[,!(names(X) %in% omitted_features) ]
-  return(X)
-}
-```
 
 ### Individuating outliers and high leverage point
 ```{r}
 require(graphics)
 #to have a look at graphs of features plotted against eachother
-#pairs(data, panel = panel.smooth)
+pairs(data, panel = panel.smooth)
 ```
 We notice some data that contain different attribute values compared to the others.
 
 ```{r}
-point = which(data$density > 1.03)
-data[point,] 
-```
-
-```{r}
-point = which(data$residual.sugar > 60)
-data[point,]
-data <- data[-point,]
-```
-
-
-```{r}
-point = which(data$free.sulfur.dioxide > 250)
-data[point,]
-data <- data[-point,]
-```
-```{r}
-point = which(data$density > 1.005)
-data[point,]
-```
-```{r}
-point = which(data$residual.sugar > 30)
-data[point,]
-data <- data[-point,]
-```
-
-```{r}
-point = which(data$fixed.acidity > 12)
-data[point,]
-#data <- data[-point,]
-```
-```{r}
-point = which(data$fixed.acidity > 11)
-data[point,]
-#data <- data[-point,]
-```
-
-
-```{r}
-require(graphics)
-#to have a look at graphs of features plotted against eachother
-pairs(data, panel = panel.smooth)
-```
-
-
-### Removing feature and scaling data
-```{r}
-X <- data[, -12]
-y <- data$quality
-
-X <- as.data.frame(scale(X)) #scaling data
-
-omitted_features <- c("citric.acid")
-X <- rm_feature(X,omitted_features)
-X_val <- rm_feature(validation_data,omitted_features)
+#Storing outliers and hl points in a list. Later on I will remove them from data
+outliers_hl_points <- c()
+outliers_hl_points <- append(outliers_hl_points, 
+                          which(data$density > 1.03))
+outliers_hl_points <- append(outliers_hl_points, 
+                          which(data$residual.sugar > 60))
+outliers_hl_points <- append(outliers_hl_points, 
+                          which(data$free.sulfur.dioxide > 250))
+outliers_hl_points <- append(outliers_hl_points, 
+                          which(data$density > 1.005))
+outliers_hl_points <- append(outliers_hl_points, 
+                          which(data$residual.sugar > 30))
+outliers_hl_points <- append(outliers_hl_points, 
+                          which(data$fixed.acidity > 12))
+outliers_hl_points <- append(outliers_hl_points, 
+                          which(data$fixed.acidity > 11))
 ```
 
 
 ### Apply PCA
 ```{r}
-pca <- prcomp(X, scale = FALSE)
+pca <- prcomp(data[-12], scale = TRUE)
 fviz_screeplot(pca, addlabels = TRUE, ylim = c(0, 100)) + ggtitle("Explained variance per component")
 ```
 
@@ -193,14 +147,19 @@ fviz_screeplot(pca, addlabels = TRUE, ylim = c(0, 100)) + ggtitle("Explained var
 summary(pca)
 ```
 
-## RMSE function
+## Fit KNN on training set
+```{r}
+X <- data[, -12]
+y <- data$quality
+```
+
+
 ```{r}
 RMSE <- function(y_true, y_pred){
   return(sqrt(mean((y_true - y_pred)^2)))
 }
 ```
 
-## KNN function
 ```{r}
 fit_knn <- function(X_train, y_train, X_test, k_val){
   y_hat = knn.reg(train = X_train, test=X_test, y=y_train, k = k_val)
@@ -209,58 +168,26 @@ fit_knn <- function(X_train, y_train, X_test, k_val){
 }
 ```
 
-## Fit KNN on training set
 
 ```{r}
-k_range = seq(1, 50, by = 1)
-train_rmse <- data.frame(k = k_range, train_rmse = numeric(length(k_range)))
-
-for (i in 1:length(k_range)){
-  k <- k_range[i]
-  y_hat = fit_knn(X, y, X, k)
-  train_rmse[i, "train_rmse"] <- RMSE(y, y_hat)
+fit_knn_training_set <- function(X, y){
+  k_range = seq(1, 50, by = 1)
+  train_rmse <- c()
+  
+  for (k in k_range){
+    y_hat = fit_knn(X, y, X, k)
+    train_rmse <- append(train_rmse, RMSE(y, y_hat))
+  }
+  
+  results_train_rmse <- data.frame(k = k_range, train_rmse=train_rmse)
+  return(results_train_rmse)
 }
 
-head(train_rmse,10)
-train_rmse$k <- NULL
+results_train_rmse <- fit_knn_training_set(X, y)
+train_rmse <- results_train_rmse$train_rmse
+head(results_train_rmse,10)
 ```
-## Fit KNN on training set with PCA
-```{r}
-pc_data <- as.data.frame(pca$x)
 
-max_components <- 10
-max_k <- 50
-components <- 6
-
-results_pca <- data.frame(k = 1:max_k, train_rmse = max_k)
-
-X_pca <- pc_data[,1:components]
-
-for(i in 1:max_k){
-  y_hat <- fit_knn(X_pca, y, X_pca, i)
-  results_pca[i,"train_rmse"] <- RMSE(y, y_hat)
-}
-
-head(results_pca,10)
-results_pca$k <- NULL
-
-
-#NOT WORKING! cycle that shows rmse in a matrix combinations of k - components#
-
-#results_df <- data.frame(matrix(nrow = max_components, ncol = max_k))
-
-#for (i in 1:max_components){
-  #X_pca <- pc_data[,1:i]
-  #for (j in 1:max_k) {
-    #y_hat <- knn.reg(train = X_pca, test = X_pca, y = y, k = j)
-    #train_rmse <- RMSE(y, y_hat$pred)
-    #results_df[i,j] <- train_rmse
-  #}
-#}
-
-#head(results_df,10)
-
-```
 
 ## K-fold Cross Validation of KNN
 ```{r}
@@ -268,6 +195,7 @@ k_fold_cv <- function(X, y, train_rmse){
   set.seed(42)
   folds <- createFolds(y, k = 5, list = TRUE)
   cv_rmse <- c()
+  k_range = seq(1, 50, by = 1)
   
   for (k in k_range){ #perform k-fold-cross-validation for every value of k (1-50)
     cv_rmse_fold <- c()
@@ -292,12 +220,14 @@ k_fold_cv <- function(X, y, train_rmse){
 }
 # The results of k-fold cv are returned as a dataframe.
 results_kfold <- k_fold_cv(X, y, train_rmse)
-head(results_kfold,50)
+cv_rmse = results_kfold$cv_rmse
+head(results_kfold,10)
 ```
 
 ### Plots
 ```{r}
-ggplot(results_kfold, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
+plot_training_cv_rmse <- function(results, train_rmse, cv_rmse){
+  ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
   geom_line() +
   geom_point() +
   geom_line(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
@@ -305,49 +235,159 @@ ggplot(results_kfold, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
   scale_x_continuous(labels = scales::scientific_format()) +
   labs(x = "log (1/K) (K of KNN)", y = "RMSE", color = "Data") +
   theme_minimal()
-
+}
 ```
-### Best k
+
 ```{r}
-cv_rmse = results_kfold$cv_rmse
-minimum <- min(cv_rmse)
-print(paste('min cv_rmse:',minimum))
-print(paste('          k:', match( minimum , cv_rmse)))
+plot_training_cv_rmse(results_kfold, train_rmse, cv_rmse)
+```
+
+
+### Find best k
+```{r}
+find_best_k <- function(cv_rmse){
+  minimum <- min(cv_rmse)
+  print(paste('min cv_rmse:',minimum))
+  print(paste('          k:', match( minimum , cv_rmse)))
+}
+```
+
+```{r}
+#It finds best k in the case of fitting knn on data without feature engineering
+find_best_k(cv_rmse)
+```
+
+### K-fold Cross Validation with feature engineering
+```{r}
+rm_feature <- function(X,omitted_features){
+  X <- X[,!(names(X) %in% omitted_features) ]
+  return(X)
+}
+
+X_fe <- as.data.frame(scale(X)) #scaling data
+
+omitted_features <- c("citric.acid", "density")
+X_fe <- rm_feature(X_fe,omitted_features)
+# X_val <- rm_feature(validation_data,omitted_features)
+
+#Fitting knn on training set
+results_train_rmse_fe <- fit_knn_training_set(X_fe, y)
+train_rmse_fe = results_train_rmse_fe$train_rmse
+
+#Fitting knn with cross validation
+results_kfold_fe <- k_fold_cv(X_fe, y, train_rmse_fe)
+cv_rmse_fe <- results_kfold_fe$cv_rmse
+
+plot_training_cv_rmse(results_kfold_fe, train_rmse_fe, cv_rmse_fe)
 
 ```
+```{r}
+# Find best k
+find_best_k(cv_rmse_fe)
+```
+
+
+## K-fold Cross Validation without outliers and hl points
+```{r}
+X_without_outliers <- data[-outliers_hl_points, -12]
+y_without_outliers <- y[-outliers_hl_points]
+
+#Fitting knn on training set
+results_train_rmse_outliers <- fit_knn_training_set(X_without_outliers, 
+                                                    y_without_outliers)
+train_rmse_outliers = results_train_rmse_fe$train_rmse
+
+#Fitting knn with cross validation
+results_kfold_outliers <- k_fold_cv(X_without_outliers, 
+                                    y_without_outliers, 
+                                    train_rmse_outliers)
+cv_rmse_outliers <- results_kfold_outliers$cv_rmse
+
+plot_training_cv_rmse(results_kfold_outliers, 
+                      train_rmse_outliers, 
+                      cv_rmse_outliers)
+
+```
+
+```{r}
+# Find best k
+find_best_k(cv_rmse_outliers)
+```
+
+
 ## K-fold Cross Validation of KNN with PCA
 ```{r}
-results_kfold_pca <- k_fold_cv(X_pca, y, results_pca)
-head(results_kfold_pca,50)
+
+# Fit KNN on training set with PCA
+
+pc_data <- as.data.frame(pca$x)
+max_components <- 10
+max_k <- 50
+components <- 6
+X_pca <- pc_data[,1:components]
+results_pca <- fit_knn_training_set(X_pca, y)
+
+pca_training_rmse <- results_pca$train_rmse
+results_kfold_pca <- k_fold_cv(X_pca, y, pca_training_rmse)
+
+cv_rmse_pca <- results_kfold_pca$cv_rmse
+plot_training_cv_rmse(results_kfold_pca, pca_training_rmse, cv_rmse_pca)
+
+
+#NOT WORKING! cycle that shows rmse in a matrix combinations of k - components#
+
+#results_df <- data.frame(matrix(nrow = max_components, ncol = max_k))
+
+#for (i in 1:max_components){
+  #X_pca <- pc_data[,1:i]
+  #for (j in 1:max_k) {
+    #y_hat <- knn.reg(train = X_pca, test = X_pca, y = y, k = j)
+    #train_rmse <- RMSE(y, y_hat$pred)
+    #results_df[i,j] <- train_rmse
+  #}
+#}
+
+#head(results_df,10)
+```
+```{r}
+# Find best k
+find_best_k(cv_rmse_pca)
 ```
 
-### Plots
+## PCA on scaled data without citric.acid feature
 ```{r}
-ggplot(results_kfold_pca, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
-  geom_line() +
-  geom_point() +
-  geom_line(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
-  geom_point(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
-  scale_x_continuous(labels = scales::scientific_format()) +
-  labs(x = "log (1/K) (K of KNN)", y = "RMSE", color = "Data") +
-  theme_minimal()
+X_pca2 <- as.data.frame(scale(data[-12]))
+y_pca2 <- y
+X_pca2 <- rm_feature(X_pca2, c("citric.acid"))
+pca_2 <- prcomp(X_pca2, scale = FALSE) #data already scaled
 
+pc_data2 <- as.data.frame(pca_2$x)
+components <- 9
+
+X_pca2 <- pc_data2[,1:components]
+results_pca2 <- fit_knn_training_set(X_pca2, y_pca2)
+
+pca2_training_rmse <- results_pca2$train_rmse
+results_kfold_pca2 <- k_fold_cv(X_pca2, y_pca2, pca2_training_rmse)
+
+cv_rmse_pca2 <- results_kfold_pca2$cv_rmse
+plot_training_cv_rmse(results_kfold_pca2, pca_training_rmse2, cv_rmse_pca2)
+ 
 ```
-### Best k with PCA
 ```{r}
-cv_rmse_pca = results_kfold_pca$cv_rmse
-minimum <- min(cv_rmse_pca)
-print(paste('min cv_rmse:',minimum))
-print(paste('          k:', match( minimum , cv_rmse_pca)))
+# Find best k
+find_best_k(cv_rmse_pca2)
 ```
+
+
+
+
 ## Conclusions
 - We notice how the model is performing slitghly better without using PCA;
 - Taking out high leverage points or outliers always lead to slitghly worse results;
   - Current data points chosen to be removed seem the best one.
 - Feature "citric_acid" seems the best feature to remove since it improves the perfomances in both cases. 
   - This doesn't hold for the case where we remove also other features.
-
-## TODO: test the model with the lowest cv error
 
 ## Other results: min cv_rmse calculated without taking out any data points
 ### Just scaled data
