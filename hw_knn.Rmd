@@ -11,7 +11,7 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-### KNN Homework
+# KNN Homework
 ```{r}
 #TODO:
 # - Feature engineering to reduce the feature dimensionality.
@@ -23,6 +23,8 @@ knitr::opts_chunk$set(echo = TRUE)
 ```{r}
 library(caret)
 library(ggplot2)
+library(dplyr)
+library(factoextra)
 # library(class)
 library(FNN)
 library(reshape2)
@@ -33,13 +35,28 @@ library(reshape2)
 validation_data <- read.csv("wineq_validation.csv") 
 data = read.csv("wineq_train.csv")
 summary(data)
-print('')
-print('correlation Matrix values:')
+```
+
+```{r}
+str(data)
+```
+```{r}
+
+for (i in 1:(ncol(data)-1)){
+  hist(data[,i], 25, main = colnames(data)[i], xlab = "Values", ylab = "Frequency")
+}
+
+```
+
+## Correlation matrix
+
+```{r}
+print('Correlation matrix values:')
 corr <- round(cor(data), 2)
-corr
-print('')
-print('correlation matrixheatmap:')
+print(corr)
+
 melted_cormat <- melt(corr)
+
 ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
   geom_tile(color = "white")+
   scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
@@ -50,54 +67,130 @@ ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
      size = 12, hjust = 1))+
   coord_fixed()
 
-
 ```
 
-###The most correlated pairs are: 
-density : residual.sugar      0.84
-density : alcohol          -0.78
-free.sulfur.dioxide : total.sulfur.dioxide  0.63
-total.sulfur.dioxide : density    0.54
-residual.sugar : alcohol       -0.46
-total.sulfur.dioxide : alcohol   -0.46
-pH : fixed.acidity      -0.41
+### Most correlated pairs are: 
 
-
-###features with almost no correlation with quality:
-citric.acid      -0.01
-free.sulfur.dioxide  0.01
-sulphates    0.05
-pH      0.10
-residual.sugar  -0.10
-fixed.acidity   -0.11
-
-
-
-## Feture engineering
 ```{r}
-# TODO: feature engineering
-transform_data <- function(X){
-  
+
+# Filter pairs with different names
+filtered_pairs <- melted_cormat[melted_cormat$Var1 != melted_cormat$Var2, ]
+
+# Create a new column with sorted pairs inserting - between the names
+filtered_pairs$pair <- apply(filtered_pairs[, c("Var1", "Var2")], 1, function(x) paste(sort(x), collapse = "-"))
+
+# Remove duplicates based on the sorted pair
+filtered_pairs <- filtered_pairs[!duplicated(filtered_pairs$pair),]
+
+# Sort by absolute correlation value
+filtered_pairs <- filtered_pairs[order(abs(filtered_pairs$value), decreasing = TRUE),]
+
+filtered_pairs$pair <- NULL # to remove irrelevant column created
+rownames(filtered_pairs) <- NULL # to remove indexes for the values from the last matrix
+
+# Print the top correlated pairs with different names
+head(filtered_pairs,10)
+```
+
+### Features with almost no correlation with quality:
+
+```{r}
+# Calculate correlation between features and "quality" except for the pair "quality-quality"
+quality_correlation <- cor(data$quality, data[, -which(names(data) == "quality")])
+
+# Pick the names of the top 5 least correlated features in absolute value
+least_correlated_features <- names(data)[order(abs(quality_correlation))[1:10]]
+
+# Create a data frame with feature names and their correlation values
+result_df <- data.frame(Feature = least_correlated_features, Value = quality_correlation[order(round(abs(quality_correlation),2))[1:10]])
+
+head(result_df,10)
+```
+
+## Feature engineering
+```{r}
+# Remove features
+rm_feature <- function(X,omitted_features){
   X <- X[,!(names(X) %in% omitted_features) ]
-  #X <- predict(pca, newdata = X)[, 1:9]
   return(X)
 }
-compute_pca <- function(X){
-  X <- X[,!(names(X) %in% omitted_features) ]
-pca <- prcomp(X, scale. = TRUE)
-print('proportion of variance')
-print(summary(pca)$importance[2,])
-print('cumulativ variance')
-print(summary(pca)$importance[3,])
-}
-omitted_features <- c("citric.acid")
+```
+
+### Individuating outliers and high leverage point
+```{r}
+require(graphics)
+#to have a look at graphs of features plotted against eachother
+#pairs(data, panel = panel.smooth)
+```
+We notice some data that contain different attribute values compared to the others.
+
+```{r}
+point = which(data$density > 1.03)
+data[point,] 
+```
+
+```{r}
+point = which(data$residual.sugar > 60)
+data[point,]
+data <- data[-point,]
+```
+
+
+```{r}
+point = which(data$free.sulfur.dioxide > 250)
+data[point,]
+data <- data[-point,]
+```
+```{r}
+point = which(data$density > 1.005)
+data[point,]
+```
+```{r}
+point = which(data$residual.sugar > 30)
+data[point,]
+data <- data[-point,]
+```
+
+```{r}
+point = which(data$fixed.acidity > 12)
+data[point,]
+#data <- data[-point,]
+```
+```{r}
+point = which(data$fixed.acidity > 11)
+data[point,]
+#data <- data[-point,]
+```
+
+
+```{r}
+require(graphics)
+#to have a look at graphs of features plotted against eachother
+pairs(data, panel = panel.smooth)
+```
+
+
+### Removing feature and scaling data
+```{r}
 X <- data[, -12]
 y <- data$quality
+
 X <- as.data.frame(scale(X)) #scaling data
-pca <- compute_pca(X)
-X <- transform_data(X)
-summary(X)
-X_val <- transform_data(validation_data)
+
+omitted_features <- c("citric.acid")
+X <- rm_feature(X,omitted_features)
+X_val <- rm_feature(validation_data,omitted_features)
+```
+
+
+### Apply PCA
+```{r}
+pca <- prcomp(X, scale = FALSE)
+fviz_screeplot(pca, addlabels = TRUE, ylim = c(0, 100)) + ggtitle("Explained variance per component")
+```
+
+```{r}
+summary(pca)
 ```
 
 ## RMSE function
@@ -116,32 +209,69 @@ fit_knn <- function(X_train, y_train, X_test, k_val){
 }
 ```
 
-
-
-
-
 ## Fit KNN on training set
+
 ```{r}
 k_range = seq(1, 50, by = 1)
-train_rmse <- c()
-for (k in k_range){
+train_rmse <- data.frame(k = k_range, train_rmse = numeric(length(k_range)))
+
+for (i in 1:length(k_range)){
+  k <- k_range[i]
   y_hat = fit_knn(X, y, X, k)
-  train_rmse <- append(train_rmse, RMSE(y, y_hat))
+  train_rmse[i, "train_rmse"] <- RMSE(y, y_hat)
 }
-train_rmse
+
+head(train_rmse,10)
+train_rmse$k <- NULL
+```
+## Fit KNN on training set with PCA
+```{r}
+pc_data <- as.data.frame(pca$x)
+
+max_components <- 10
+max_k <- 50
+components <- 6
+
+results_pca <- data.frame(k = 1:max_k, train_rmse = max_k)
+
+X_pca <- pc_data[,1:components]
+
+for(i in 1:max_k){
+  y_hat <- fit_knn(X_pca, y, X_pca, i)
+  results_pca[i,"train_rmse"] <- RMSE(y, y_hat)
+}
+
+head(results_pca,10)
+results_pca$k <- NULL
+
+
+#NOT WORKING! cycle that shows rmse in a matrix combinations of k - components#
+
+#results_df <- data.frame(matrix(nrow = max_components, ncol = max_k))
+
+#for (i in 1:max_components){
+  #X_pca <- pc_data[,1:i]
+  #for (j in 1:max_k) {
+    #y_hat <- knn.reg(train = X_pca, test = X_pca, y = y, k = j)
+    #train_rmse <- RMSE(y, y_hat$pred)
+    #results_df[i,j] <- train_rmse
+  #}
+#}
+
+#head(results_df,10)
+
 ```
 
-
-## k-fold cross validation
+## K-fold Cross Validation of KNN
 ```{r}
-k_fold_cv <- function(X, y){
+k_fold_cv <- function(X, y, train_rmse){
   set.seed(42)
   folds <- createFolds(y, k = 5, list = TRUE)
   cv_rmse <- c()
   
-  for (k in k_range){
+  for (k in k_range){ #perform k-fold-cross-validation for every value of k (1-50)
     cv_rmse_fold <- c()
-    for (i in 1:length(folds)) {
+    for (i in 1:length(folds)) { #iterates through every fold of the data
       #unlist function flatten the list. Remember that folds is a list of lists
       train_indexes <- unlist(folds[-i]) 
       test_indexes <- unlist(folds[i])
@@ -154,22 +284,20 @@ k_fold_cv <- function(X, y){
       y_hat <- fit_knn(X_train, y_train, X_test, k)
       cv_rmse_fold <- append(cv_rmse_fold, RMSE(y_test, y_hat))
     }
-    cv_rmse <- append(cv_rmse, mean(cv_rmse_fold))
+    cv_rmse <- append(cv_rmse, mean(cv_rmse_fold)) #append to the cv_rmse array the mean of the current fold with k-value
   }
-  results <- data.frame(k = k_range, train_rmse = train_rmse, cv_rmse = cv_rmse)
-  return(results)
+  results_kfold <- data.frame(k = k_range, train_rmse, cv_rmse = cv_rmse)
+  return(results_kfold)
   
 }
 # The results of k-fold cv are returned as a dataframe.
-results <- k_fold_cv(X, y)
-str(results)
+results_kfold <- k_fold_cv(X, y, train_rmse)
+head(results_kfold,50)
 ```
 
-
-
-## Plots
+### Plots
 ```{r}
-ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
+ggplot(results_kfold, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
   geom_line() +
   geom_point() +
   geom_line(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
@@ -179,19 +307,50 @@ ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
   theme_minimal()
 
 ```
-## Best k
+### Best k
 ```{r}
-cv_rmse = results$cv_rmse
+cv_rmse = results_kfold$cv_rmse
 minimum <- min(cv_rmse)
 print(paste('min cv_rmse:',minimum))
-print(paste('          k:', match( minimum , cv_rmse)+1))
+print(paste('          k:', match( minimum , cv_rmse)))
 
 ```
+## K-fold Cross Validation of KNN with PCA
+```{r}
+results_kfold_pca <- k_fold_cv(X_pca, y, results_pca)
+head(results_kfold_pca,50)
+```
 
+### Plots
+```{r}
+ggplot(results_kfold_pca, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
+  geom_line() +
+  geom_point() +
+  geom_line(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
+  geom_point(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
+  scale_x_continuous(labels = scales::scientific_format()) +
+  labs(x = "log (1/K) (K of KNN)", y = "RMSE", color = "Data") +
+  theme_minimal()
+
+```
+### Best k with PCA
+```{r}
+cv_rmse_pca = results_kfold_pca$cv_rmse
+minimum <- min(cv_rmse_pca)
+print(paste('min cv_rmse:',minimum))
+print(paste('          k:', match( minimum , cv_rmse_pca)))
+```
+## Conclusions
+- We notice how the model is performing slitghly better without using PCA;
+- Taking out high leverage points or outliers always lead to slitghly worse results;
+  - Current data points chosen to be removed seem the best one.
+- Feature "citric_acid" seems the best feature to remove since it improves the perfomances in both cases. 
+  - This doesn't hold for the case where we remove also other features.
 
 ## TODO: test the model with the lowest cv error
 
-### Just scaled data with no change
+## Other results: min cv_rmse calculated without taking out any data points
+### Just scaled data
 [1] "min cv_rmse: 0.706715970421997"
 [1] "          k: 12"
 
