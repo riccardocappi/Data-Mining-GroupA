@@ -1,6 +1,6 @@
 ---
 title: "HW_KNN"
-author: "Riccardo Cappi"
+author: "Data Divas"
 date: "2024-03-27"
 output:
   pdf_document: default
