@@ -32,7 +32,6 @@ library(reshape2)
 
 ## Import dataset
 ```{r}
-validation_data <- read.csv("wineq_validation.csv") 
 data = read.csv("wineq_train.csv")
 summary(data)
 ```
@@ -82,8 +81,8 @@ filtered_pairs$pair <- apply(filtered_pairs[, c("Var1", "Var2")], 1, function(x)
 # Remove duplicates based on the sorted pair
 filtered_pairs <- filtered_pairs[!duplicated(filtered_pairs$pair),]
 
-# Sort by correlation value
-filtered_pairs <- filtered_pairs[order(filtered_pairs$value, decreasing = TRUE),]
+# # Sort by absolute correlation value
+filtered_pairs <- filtered_pairs[order(abs(filtered_pairs$value), decreasing = TRUE),]
 
 filtered_pairs$pair <- NULL # to remove irrelevant column created
 rownames(filtered_pairs) <- NULL # to remove indexes for the values from the last matrix
@@ -97,7 +96,7 @@ head(filtered_pairs,10)
 ```{r}
 # Calculate correlation between features and "quality" except for the pair "quality-quality"
 quality_correlation <- cor(data$quality, data[, -which(names(data) == "quality")])
-least_correlated_indexes <- order(quality_correlation)
+least_correlated_indexes <- order(abs(quality_correlation))
 
 # Pick the names of the top least correlated features
 least_correlated_features <- names(data)[least_correlated_indexes]
@@ -197,9 +196,11 @@ k_fold_cv <- function(X, y, train_rmse){
   cv_rmse <- c()
   k_range = seq(1, 50, by = 1)
   
-  for (k in k_range){ #perform k-fold-cross-validation for every value of k (1-50)
+  #perform k-fold-cross-validation for every value of k (1-50)
+  for (k in k_range){ 
     cv_rmse_fold <- c()
-    for (i in 1:length(folds)) { #iterates through every fold of the data
+    #iterates through every fold of the data
+    for (i in 1:length(folds)) { 
       #unlist function flatten the list. Remember that folds is a list of lists
       train_indexes <- unlist(folds[-i]) 
       test_indexes <- unlist(folds[i])
@@ -212,7 +213,8 @@ k_fold_cv <- function(X, y, train_rmse){
       y_hat <- fit_knn(X_train, y_train, X_test, k)
       cv_rmse_fold <- append(cv_rmse_fold, RMSE(y_test, y_hat))
     }
-    cv_rmse <- append(cv_rmse, mean(cv_rmse_fold)) #append to the cv_rmse array the mean of the current fold with k-value
+    #append to the cv_rmse array the mean of the current fold with k-value
+    cv_rmse <- append(cv_rmse, mean(cv_rmse_fold)) 
   }
   results_kfold <- data.frame(k = k_range, train_rmse, cv_rmse = cv_rmse)
   return(results_kfold)
@@ -266,7 +268,7 @@ rm_feature <- function(X,omitted_features){
 
 X_fe <- as.data.frame(scale(X)) #scaling data
 
-omitted_features <- c("citric.acid", "density")
+omitted_features <- c("citric.acid")
 X_fe <- rm_feature(X_fe,omitted_features)
 # X_val <- rm_feature(validation_data,omitted_features)
 
@@ -353,34 +355,6 @@ plot_training_cv_rmse(results_kfold_pca, pca_training_rmse, cv_rmse_pca)
 # Find best k
 find_best_k(cv_rmse_pca)
 ```
-
-## PCA on scaled data without citric.acid feature
-```{r}
-X_pca2 <- as.data.frame(scale(data[-12]))
-y_pca2 <- y
-X_pca2 <- rm_feature(X_pca2, c("citric.acid"))
-pca_2 <- prcomp(X_pca2, scale = FALSE) #data already scaled
-
-pc_data2 <- as.data.frame(pca_2$x)
-components <- 9
-
-X_pca2 <- pc_data2[,1:components]
-results_pca2 <- fit_knn_training_set(X_pca2, y_pca2)
-
-pca2_training_rmse <- results_pca2$train_rmse
-results_kfold_pca2 <- k_fold_cv(X_pca2, y_pca2, pca2_training_rmse)
-
-cv_rmse_pca2 <- results_kfold_pca2$cv_rmse
-plot_training_cv_rmse(results_kfold_pca2, pca_training_rmse2, cv_rmse_pca2)
- 
-```
-```{r}
-# Find best k
-find_best_k(cv_rmse_pca2)
-```
-
-
-
 
 ## Conclusions
 - We notice how the model is performing slitghly better without using PCA;
