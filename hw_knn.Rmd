@@ -1,6 +1,6 @@
 ---
 title: "HW_KNN"
-author: "Data Divas"
+author: "Data Divas (Group A)"
 date: "2024-03-27"
 output:
   pdf_document: default
@@ -24,12 +24,10 @@ library(reshape2)
 ```
 
 ## Exploratory Data Analysis (EDA)
-In this section we are going to perform a briefly data exploration:
+In this section we perform some data exploration activities, such as:
+
 - Quick view of the data summary
 - Check for categorical variables and any missing values
-- Analyzing correlation between variables
-- Identifying outliers and high leverage points
-- Applying PCA in order to see the explained variance of principal components
 
 ### Import dataset
 ```{r}
@@ -42,130 +40,55 @@ We can see that variables like "free.sulfur.dioxide" and "total.sulfur.dioxide" 
 ```{r}
 str(data)
 ```
-We can see that there are no categorical variables.
 
 ```{r}
 data[is.na(data)]
 ```
-We can see that there are no missing values in the dataset.
+We can see that there are neither categorical variables nor missing values in the dataset.
 
-### Correlation matrix
-```{r}
-corr <- round(cor(data), 2)
 
-melted_cormat <- melt(corr)
-
-ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) + 
-  geom_tile(color = "white")+
-  scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
-    midpoint = 0, limit = c(-1,1), space = "Lab", 
-    name="Correlation") +
-   theme_minimal()+ 
-  theme(axis.text.x = element_text(angle = 45, vjust = 1, 
-     size = 12, hjust = 1))+
-  coord_fixed()
-
-```
-Looking at the correlation matrix we can see an high positive correlation value between "residual.sugar" and "density". Also an high negative correlation is noticeable between "density" and "alcohol".
-
-### Most correlated pairs are: 
-```{r}
-
-# Filter pairs with different names
-filtered_pairs <- melted_cormat[melted_cormat$Var1 != melted_cormat$Var2, ]
-
-# Create a new column with sorted pairs inserting - between the names
-filtered_pairs$pair <- apply(filtered_pairs[, c("Var1", "Var2")], 1,
-                             function(x) paste(sort(x), collapse = "-"))
-
-# Remove duplicates based on the sorted pair
-filtered_pairs <- filtered_pairs[!duplicated(filtered_pairs$pair),]
-
-# # Sort by absolute correlation value
-filtered_pairs <- filtered_pairs[order(abs(filtered_pairs$value), decreasing = TRUE),]
-
-filtered_pairs$pair <- NULL # to remove irrelevant column created
-rownames(filtered_pairs) <- NULL # to remove indexes for the values from the last matrix
-
-# Print the top correlated pairs with different names
-head(filtered_pairs,10)
-```
-
-### Least correlated features with quality:
-```{r}
-# Calculate correlation between features and "quality" 
-# except for the pair "quality-quality"
-quality_correlation <- cor(data$quality, data[, -which(names(data) == "quality")])
-least_correlated_indexes <- order(abs(quality_correlation))
-
-# Pick the names of the top least correlated features
-least_correlated_features <- names(data)[least_correlated_indexes]
-
-# Create a data frame with feature names and their correlation values
-result_df <- data.frame(Feature = least_correlated_features, Value =
-                          quality_correlation[least_correlated_indexes])
-
-head(result_df,10)
-```
-
-We can see variables like "citric.acid" or "free.sulfur.dioxide" has no correlation with the response variable "quality".
-
-### Individuating outliers and high leverage point
-```{r}
-require(graphics)
-#to have a look at graphs of features plotted against eachother
-pairs(data, panel = panel.smooth)
-```
-We notice some outliers and high leverage points in the data particularly in "density","residual.sugar","free.sulfur.dioxide" and "fixed.acidity".
-
-```{r}
-#Storing outliers and hl points in a list. Later on I will remove them from data
-outliers_hl_points <- c()
-outliers_hl_points <- append(outliers_hl_points, 
-                          which(data$density > 1.03))
-outliers_hl_points <- append(outliers_hl_points, 
-                          which(data$residual.sugar > 60))
-outliers_hl_points <- append(outliers_hl_points, 
-                          which(data$free.sulfur.dioxide > 250))
-outliers_hl_points <- append(outliers_hl_points, 
-                          which(data$fixed.acidity > 12))
-```
-
-For simplicity we individuated those points by looking at the scatter plots by hand.
-
-```{r}
-require(graphics)
-#to show the scatterplot after removing outliers and high leverage points
-pairs(data[-outliers_hl_points,], panel = panel.smooth)
-```
-
-### Apply PCA
-```{r}
-pca <- prcomp(data[-12], scale = TRUE)
-fviz_screeplot(pca, addlabels = TRUE, ylim = c(0, 100))+ggtitle("Explained 
-                                                                variance per component")
-```
-Since KNN performs better with few features (because of curse of dimensionality), we tried to perform PCA to see if the original dataset could be expressed with fewer components.
-Based on the above plot, in order to get satisfying results, we would probably need more than 5 components.
-
-```{r}
-summary(pca)
-```
 ## Fit KNN on training set and cross-validation
-In this section we fit KNN model, trying several experiments:
-- KNN and CV without any preprocessing applied
-- KNN and CV with some feature engineering
-- KNN and CV without outliers and hl points
-- KNN and CV with PCA
+In this section we perform KNN regression, trying different values of K, first on the whole training data, and then using k-fold cross validation. The procedure is done with respect to the following experimental settings:
+
+- without applying any pre-processing
+- with some feature engineering
+
+For each experiment, we compare the plots of the training and k-fold cross validation errors, and we show the value of K for which the model has the lowest CV error.
 
 ### Helper functions
+The following chunks of code contain the main function used to perform the experiments
+
 ```{r}
+#Computes the RMSE for the predicted y's
 RMSE <- function(y_true, y_pred){
   return(sqrt(mean((y_true - y_pred)^2)))
 }
 ```
 
 ```{r}
+# Returns the top_n features with least correlation with 
+# the response variable "quality"
+get_least_corr_vars <- function(X, top_n){
+  # Calculate correlation between features and "quality" 
+  # except for the pair "quality-quality"
+  quality_correlation <- cor(X$quality, X[, -which(names(X) == "quality")])
+  least_correlated_indexes <- order(abs(quality_correlation))
+  
+  least_correlated_features <- names(X)[least_correlated_indexes[1:top_n]]
+  least_correlated_features
+}
+```
+
+```{r}
+# Removes from X the specified features
+rm_feature <- function(X,omitted_features){
+  X <- X[,!(names(X) %in% omitted_features) ]
+  return(X)
+}
+```
+
+```{r}
+#Fits a KNN regression model with the specified K 
 fit_knn <- function(X_train, y_train, X_test, k_val){
   y_hat = knn.reg(train = X_train, test=X_test, y=y_train, k = k_val)
   y_hat = y_hat$pred
@@ -173,10 +96,19 @@ fit_knn <- function(X_train, y_train, X_test, k_val){
 }
 ```
 
+
 ```{r}
-fit_knn_training_set <- function(X, y){
-  k_range = seq(1, 50, by = 1)
+# Fits several KNN regressors, trying different values of K (1-50), on
+# the whole training set X. It returns a dataframe which associates to
+# each value of K its corresponding RMSE (K of KNN)
+fit_knn_training_set <- function(X, y, k_range, perform_feature_sel){
   train_rmse <- c()
+  if (perform_feature_sel){
+    X <- as.data.frame(scale(X))  
+    omitted_features <- get_least_corr_vars(X, 2)
+    X <- rm_feature(X, omitted_features)
+  }
+  X <- rm_feature(X, c("quality"))
   
   for (k in k_range){
     y_hat = fit_knn(X, y, X, k)
@@ -188,31 +120,56 @@ fit_knn_training_set <- function(X, y){
 }
 ```
 
+
 ```{r}
-k_fold_cv <- function(X, y, train_rmse){
+# Performs k-fold-cross-validation trying several values of
+# K (K of KNN)
+k_fold_cv <- function(X, y, train_rmse, k_range, perform_feature_sel){
   set.seed(42)
+  # we perform 5-fold cross-validation
   folds <- createFolds(y, k = 5, list = TRUE)
   cv_rmse <- c()
-  k_range = seq(1, 50, by = 1)
-  
-  #perform k-fold-cross-validation for every value of k (1-50)
+
   for (k in k_range){ 
     cv_rmse_fold <- c()
-    #iterates through every fold of the data
+    #iterates through every fold
     for (i in 1:length(folds)) { 
-      #unlist function flatten the list. Remember that folds is a list of lists
       train_indexes <- unlist(folds[-i]) 
       test_indexes <- unlist(folds[i])
       
+      # splits data using the i-th fold as validation set, and the
+      # others folds as training set
       X_train <- X[train_indexes, ]
       y_train <- y[train_indexes]
       X_test <- X[test_indexes, ]
       y_test <- y[test_indexes]
       
+      if (perform_feature_sel){
+        # fits a scaler on the training set and then applies it 
+        # on the test set
+        X_train <- scale(X_train)
+        X_test <-  scale(X_test, center=attr(X_train, "scaled:center"),
+                         scale=attr(X_train, "scaled:scale"))
+        X_train <- as.data.frame(X_train)
+        X_test <- as.data.frame(X_test)
+        
+        # get top 2 least correlated features with "quality" using ONLY 
+        # the training set
+        omitted_features <- get_least_corr_vars(X_train, 2)
+        # remove omitted features from X_train
+        X_train <- rm_feature(X_train, omitted_features)
+        # remove features also from the test set
+        X_test <- rm_feature(X_test, omitted_features)
+      }
+      X_train <- rm_feature(X_train, c("quality"))
+      X_test <- rm_feature(X_test, c("quality")) 
+      
       y_hat <- fit_knn(X_train, y_train, X_test, k)
+      # accumulates cv RMSE over the folds
       cv_rmse_fold <- append(cv_rmse_fold, RMSE(y_test, y_hat))
     }
-    #append to the cv_rmse array the mean of the current fold with k-value
+    # append to the cv_rmse array the mean error, 
+    # for the current K (K of KNN), computed over the folds
     cv_rmse <- append(cv_rmse, mean(cv_rmse_fold)) 
   }
   results_kfold <- data.frame(k = k_range, train_rmse, cv_rmse = cv_rmse)
@@ -221,7 +178,19 @@ k_fold_cv <- function(X, y, train_rmse){
 }
 ```
 
+
+An important comment for the "k_fold_cv" function defined above, which is the heart of the homework, is that any pre-processing on the data should be done ONLY on the training set inside the k-fold cross validation loop. Otherwise, we would face a data leakage problem. 
+
+In order to face this problem, we introduced a Boolean parameter called "perform_feature_sel", which determines if the function should perform some pre-processing task. In our case, if "perform_feature_sel" is TRUE we detect the 2 features with the least correlation with the response variable "quality", using ONLY the training set, and we remove them both from training and test set. Then, we fit the KNN model. 
+
+The important part is that the correlation is only computed with respect to the training set, without considering the test set, in order to avoid data leakage. 
+
+
 ```{r}
+# Produces the plot of RMSE based on train data and k-fold 
+# cross-validation as a function of 1/K (K of KNN).
+# note that we used log(1/K) as x labels to have a better
+# visualization
 plot_training_cv_rmse <- function(results, train_rmse, cv_rmse){
   ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
   geom_line() +
@@ -235,6 +204,8 @@ plot_training_cv_rmse <- function(results, train_rmse, cv_rmse){
 ```
 
 ```{r}
+# Finds the value of K (K of KNN) for which the model has the
+# lowest cv error
 find_best_k <- function(cv_rmse){
   minimum <- min(cv_rmse)
   print(paste('min cv_rmse:',minimum))
@@ -242,30 +213,28 @@ find_best_k <- function(cv_rmse){
 }
 ```
 
-```{r}
-rm_feature <- function(X,omitted_features){
-  X <- X[,!(names(X) %in% omitted_features) ]
-  return(X)
-}
-```
 
 ### KNN and CV without preprocessing
+In this experiment we perform k-fold cross validation without any preprocessing
 ```{r}
-X <- data[, -12]
+X <- data
 y <- data$quality
+k_range = seq(1, 50, by = 1) #We try 50 values for K
 ```
 
+First, we fit several KNN regressors, trying different values of K (1-50), on the whole training set. We expect to see a RMSE which decreases as the model becomes more flexible.
 ```{r}
-results_train_rmse <- fit_knn_training_set(X, y)
+results_train_rmse <- fit_knn_training_set(X, y, k_range, 
+                                           perform_feature_sel=FALSE)
 train_rmse <- results_train_rmse$train_rmse
 head(results_train_rmse,10)
 ```
+Then, we perform 5-fold cross validation, using the same range (1:50) as before for the parameter K (K of KNN). We expect the cv RMSE to increase as the model becomes more flexible. 
 
-
-### K-fold Cross Validation of KNN
+Note that we performed 5-fold cross validation, since it was shown empirically to yield test error rate estimates that suffer neither from excessively high bias nor from very high variance.
 ```{r}
-# The results of k-fold cv are returned as a dataframe.
-results_kfold <- k_fold_cv(X, y, train_rmse)
+results_kfold <- k_fold_cv(X, y, train_rmse, k_range,
+                           perform_feature_sel = FALSE)
 cv_rmse = results_kfold$cv_rmse
 head(results_kfold,10)
 ```
@@ -274,35 +243,38 @@ head(results_kfold,10)
 ```{r}
 plot_training_cv_rmse(results_kfold, train_rmse, cv_rmse)
 ```
-From the plot above we can see that as the model becomes more flexible, the training error decreases. However, the error computed with K-fold cross validation shows a U-shaped plot which is high even if the training error is low.
-This suggests that we need to find a tradeoff between training error and cross-validation error to choose the optimal K value.
+
+From the plot above we can see that as the model becomes more flexible, the training error decreases. However, the 5-fold cross validation error increases even if the training error is low. Therefore, in order to avoid overfitting, we should select the model with the lowest CV error, not the one with the lowest training error
 
 ```{r}
-#It finds best k in the case of fitting knn on data without feature engineering
+#It finds best k in the case of fitting knn on data without preprocessing
 find_best_k(cv_rmse)
 ```
 
 
 ### K-fold Cross Validation with feature engineering
-We tried to process the data in the following way:
-- scaling the data so that it has mean of 0 and standard deviation of 1
-- removing "citric.acid" feature since it is the least correlated with the response variable
-- removing "density" since it is very high correlated with "residual.sugar"
+In this experiment, we perform 5-fold cross validation with some data pre-processing. 
+The 5-fold cv loop proceeds as follows, for each value of K (K of KNN):
+
+- it creates 5 folds by randomly splitting the dataset
+
+- it splits data using the i-th fold as validation set (X_test), and the others folds as training set (X_train)
+
+- since the parameter "perform_feature_sel" is TRUE, it performs feature selection. In particular, as we said before, it detects the 2 features with the least correlation with the response variable "quality", using ONLY the training set (X_train), and it remove them both from training and validation set (X_test). Note that this computation is done using only X_train in order to avoid the data leakage problem, that is, knowledge of the hold-out test set leaks into the dataset used to train the model.
+
+- the final RMSE error is computed by averaging the RMSE errors computed over the 5 folds. 
+
 
 ```{r}
 
-X_fe <- as.data.frame(scale(X)) #scaling data
-
-omitted_features <- c("citric.acid","density")
-X_fe <- rm_feature(X_fe,omitted_features)
-# X_val <- rm_feature(validation_data,omitted_features)
-
 #Fitting knn on training set
-results_train_rmse_fe <- fit_knn_training_set(X_fe, y)
+results_train_rmse_fe <- fit_knn_training_set(X, y, k_range,
+                                              perform_feature_sel = TRUE)
 train_rmse_fe = results_train_rmse_fe$train_rmse
 
 #Fitting knn with cross validation
-results_kfold_fe <- k_fold_cv(X_fe, y, train_rmse_fe)
+results_kfold_fe <- k_fold_cv(X, y, train_rmse_fe, k_range,
+                              perform_feature_sel = TRUE)
 cv_rmse_fe <- results_kfold_fe$cv_rmse
 
 plot_training_cv_rmse(results_kfold_fe, train_rmse_fe, cv_rmse_fe)
@@ -313,87 +285,5 @@ plot_training_cv_rmse(results_kfold_fe, train_rmse_fe, cv_rmse_fe)
 find_best_k(cv_rmse_fe)
 ```
 
-
-## K-fold Cross Validation without outliers and hl points
-```{r}
-X_without_outliers <- data[-outliers_hl_points, -12]
-y_without_outliers <- y[-outliers_hl_points]
-
-#Fitting knn on training set
-results_train_rmse_outliers <- fit_knn_training_set(X_without_outliers, 
-                                                    y_without_outliers)
-train_rmse_outliers = results_train_rmse_fe$train_rmse
-
-#Fitting knn with cross validation
-results_kfold_outliers <- k_fold_cv(X_without_outliers, 
-                                    y_without_outliers, 
-                                    train_rmse_outliers)
-cv_rmse_outliers <- results_kfold_outliers$cv_rmse
-
-plot_training_cv_rmse(results_kfold_outliers, 
-                      train_rmse_outliers, 
-                      cv_rmse_outliers)
-```
-
-
-
-```{r}
-# Find best k
-find_best_k(cv_rmse_outliers)
-```
-
-
-## K-fold Cross Validation of KNN with PCA
-```{r}
-
-# Fit KNN on training set with PCA
-
-pc_data <- as.data.frame(pca$x)
-components <- 7
-X_pca <- pc_data[,1:components]
-
-results_pca <- fit_knn_training_set(X_pca, y)
-
-pca_training_rmse <- results_pca$train_rmse
-results_kfold_pca <- k_fold_cv(X_pca, y, pca_training_rmse)
-
-cv_rmse_pca <- results_kfold_pca$cv_rmse
-plot_training_cv_rmse(results_kfold_pca, pca_training_rmse, cv_rmse_pca)
-
-```
-```{r}
-# Find best k
-find_best_k(cv_rmse_pca)
-```
-
 ## Conclusions
-- We notice how the model is performing slitghly better without using PCA;
-- Taking out high leverage points or outliers always lead to slitghly worse results;
-  - Current data points chosen to be removed seem the best one.
-- Feature "citric_acid" seems the best feature to remove since it improves the perfomances in both cases. 
-  - This doesn't hold for the case where we remove also other features.
-
-## Other results: min cv_rmse calculated without taking out any data points
-### Just scaled data
-[1] "min cv_rmse: 0.706715970421997"
-[1] "          k: 12"
-
-### scaled, without citric acid 
-[1] "min cv_rmse: 0.703730059806565"
-[1] "          k: 15"
-
-### scaled, without citric.acid and free.sulfur.dioxide
-[1] "min cv_rmse: 0.720682765728945"
-[1] "          k: 11"
-
-### scaled, without density 
-[1] "min cv_rmse: 0.708451354386089"
-[1] "          k: 8"
-
-### scaled, without residual.sugar
-[1] "min cv_rmse: 0.705753479671869"
-[1] "          k: 17"
-
-### scaled, without citric acid, PCA with first 9 of 10 components (Best)
-[1] "min cv_rmse: 0.703534208790268"
-[1] "          k: 15"
+TODO
