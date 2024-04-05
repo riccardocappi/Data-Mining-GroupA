@@ -1,10 +1,10 @@
 ---
 title: "HW_KNN"
-author: "Data Divas"
+author: "Data Divas (Group A)"
 date: "2024-03-27"
 output:
-  html_document: default
   pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -98,8 +98,8 @@ fit_knn <- function(X_train, y_train, X_test, k_val){
 
 
 ```{r}
-# Fits several KNN regressors, trying different values of K (1-50), only on
-# the training set X. It returns a dataframe which associates to
+# Fits several KNN regressors, trying different values of K (1-50), on
+# the whole training set X. It returns a dataframe which associates to
 # each value of K its corresponding RMSE (K of KNN)
 fit_knn_training_set <- function(X, y, k_range, perform_feature_sel){
   train_rmse <- c()
@@ -145,8 +145,13 @@ k_fold_cv <- function(X, y, train_rmse, k_range, perform_feature_sel){
       y_test <- y[test_indexes]
       
       if (perform_feature_sel){
-        X_train <- as.data.frame(scale(X_train))
-        X_test <-  as.data.frame(scale(X_test))
+        # fits a scaler on the training set and then applies it 
+        # on the test set
+        X_train <- scale(X_train)
+        X_test <-  scale(X_test, center=attr(X_train, "scaled:center"),
+                         scale=attr(X_train, "scaled:scale"))
+        X_train <- as.data.frame(X_train)
+        X_test <- as.data.frame(X_test)
         
         # get top 2 least correlated features with "quality" using ONLY 
         # the training set
