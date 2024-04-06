@@ -50,8 +50,8 @@ We can see that there are neither categorical predictors nor missing values in t
 ## Fit KNN on training set and k-fold cross-validation
 In this section we perform KNN regression, trying different values of K, first on the whole training data, and then using k-fold cross validation. The procedure is done with respect to the following experimental settings:
 
-- without applying any pre-processing
-- with some feature engineering
+- without applying any pre-processing or feature engineering techniques
+- applying pre-processing and feature engineering techniques
 
 For each experiment, we compare the plots of the training and k-fold cross validation errors, and we show the value of K (K of KNN) which got the lowest CV error.
 
@@ -148,9 +148,10 @@ k_fold_cv <- function(X, y, train_rmse, k_range, perform_feature_sel){
       if (perform_feature_sel){
         # fits a scaler only on the training set and then applies it 
         # on validation set
-        X_train <- scale(X_train)
-        X_test <-  scale(X_test, center=attr(X_train, "scaled:center"),
-                         scale=attr(X_train, "scaled:scale"))
+        preproc <- preProcess(X_train, method = c("center", "scale"))
+        X_train <- predict(preproc, X_train)
+        X_test <- predict(preproc,X_test)
+        
         X_train <- as.data.frame(X_train)
         X_test <- as.data.frame(X_test)
         
@@ -180,11 +181,11 @@ k_fold_cv <- function(X, y, train_rmse, k_range, perform_feature_sel){
 ```
 
 
-An important comment for the "k_fold_cv" function defined above, which is the heart of the homework, is that any pre-processing on the data should be done ONLY on the training set inside the k-fold cross validation loop. Otherwise, we would face a data leakage problem. 
+An important comment for the "k_fold_cv" function defined above, which is the heart of the homework, is that any pre-processing and feature engineering on the data should be done ONLY on the training set inside the k-fold cross validation loop. Otherwise, we would face a data leakage problem. 
 
-In order to deal with this problem, we introduced a Boolean parameter called "perform_feature_sel", which determines if the function should perform some pre-processing task. In our case, if "perform_feature_sel" is TRUE, we scale the data, we detect the 2 features with the least correlation with the response variable "quality", using ONLY the training set X_train, and we remove them both from training and validation set. Then, we fit the KNN model. Note that also the scaling of data is done by first fitting a scaler only on X_train and then applying it to the hold-out set X_test.
+In order to deal with this problem, we introduced a Boolean parameter called "perform_feature_sel", which determines if the function should perform some pre-processing and feature engineering. In our case, if "perform_feature_sel" is TRUE, we scale the data, we detect the 2 features with the least correlation with the response variable "quality", using ONLY the training set X_train, and we remove them both from training and validation set. Then, we fit the KNN model. Note that also the scaling of data is done by first fitting a scaler only on X_train and then applying it to the hold-out set X_test.
 
-The important part is that every pre-processing computation (scaling and correlation) is done only with respect to X_train, without considering X_test, in order to avoid data leakage. Then, the transformation is also applied to X_test.
+The important part is that every data preparation is done only with respect to X_train, without considering X_test, in order to avoid data leakage. Then, the transformation is also applied to X_test.
 
 
 ```{r}
@@ -215,8 +216,8 @@ find_best_k <- function(cv_rmse){
 ```
 
 
-### KNN and CV without preprocessing
-In this experiment we perform k-fold cross validation without any pre-processing
+### KNN and CV without preprocessing and feature engineering
+In this experiment we perform k-fold cross validation without any pre-processing and feature engineering.
 ```{r}
 X <- data
 y <- data$quality
@@ -232,7 +233,6 @@ head(results_train_rmse,10)
 ```
 Then, we perform 5-fold cross validation, using the same range (1-50) as before for the parameter K (K of KNN). We expect the CV RMSE to increase as the model becomes more flexible. 
 
-Note that we performed 5-fold cross validation since it was shown empirically to yield test error rate estimates that suffer neither from excessively high bias nor from very high variance.
 ```{r}
 results_kfold <- k_fold_cv(X, y, train_rmse, k_range,
                            perform_feature_sel = FALSE)
@@ -253,8 +253,8 @@ find_best_k(cv_rmse)
 ```
 
 
-### K-fold Cross Validation with feature engineering
-In this experiment, we perform 5-fold cross validation with some data pre-processing. 
+### K-fold Cross Validation with pre-processing and feature engineering
+In this experiment, we perform 5-fold cross validation with some data pre-processing and feature engineering. 
 The 5-fold cv loop proceeds as follows, for each value of K (K of KNN):
 
 - it creates 5 folds by randomly splitting the dataset
@@ -297,7 +297,7 @@ However, the estimated test error is lower in this case.
 ## Conclusions
 In this homework we compared the behaviors of the training and k-fold cross validation errors when performing KNN regression with several flexibility degrees. The results show that, as the flexibility of the model increases (or equivalently as the number of neighbors decreases), the training RMSE decreases, while the CV error follows a kind of U-shaped function, with very high values for too flexible models. Note that the shape of the CV error does not strictly match the nice U-function shown in the book. We believe that this is because we only tried 50 values of K (for computational reasons), but if we were to increase the range of K, the CV error would probably increase a lot even for models with low flexibility.
 
-We noticed that scaling the data to have 0 mean and 1 standard deviation, and removing the 2 least correlated features with "quality" improved a lot the model's performances. Note that we performed these pre-processing computations only on the training set inside the k-fold cross validation loop, without looking at the validation set. This avoids the data leakage problem, which could lead to incorrect estimate of the test error.  
+We noticed that scaling the data to have 0 mean and 1 standard deviation, and removing the 2 least correlated features with "quality" improved a lot the model's performances. Note that we performed these pre-processing and feature engineering computations only on the training set inside the k-fold cross validation loop, without looking at the validation set. This avoids the data leakage problem, which could lead to incorrect estimate of the test error.  
 
 
 
