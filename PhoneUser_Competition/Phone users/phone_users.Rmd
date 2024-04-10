@@ -1,0 +1,146 @@
+
+## Importing required libraries
+```{r warning=FALSE,message=FALSE}
+library(caret)
+library(ggplot2)
+# library(class)
+library(FNN)
+library(reshape2)
+```
+
+###import datasets
+```{r}
+train <- read.csv("phone_train.csv", header=TRUE)
+test <- read.csv("phone_validation.csv", header=TRUE)
+```
+
+```{r}
+str(train)
+```
+
+```{r}
+#Checking for null values
+is_null <- is.na(train)
+colSums(is_null)
+```
+
+```{r}
+is_null <- is.na(test)
+colSums(is_null)
+```
+
+
+```{r}
+summary(train$activation.zone)
+```
+
+
+```{r}
+summary(train$activation.channel)
+```
+
+```{r}
+# Get the categorical variables
+chr_cols <- sapply(train, function(x) class(x) == "character")
+
+chr_col_names <- names(train)[chr_cols]
+
+# categorical_numeric_features = c("activation.zone")
+
+# categorical_features <- c(chr_col_names, categorical_numeric_features)
+
+categorical_features <- chr_col_names
+
+for (feature in categorical_features){
+  print(feature)
+  print(table(train[,feature]))
+}
+
+```
+```{r}
+# Removes from X the specified features
+rm_feature <- function(X,omitted_features){
+  X <- X[,!(names(X) %in% omitted_features) ]
+  return(X)
+}
+```
+
+
+```{r}
+one_hot_encoding <- function(X){
+  # One-hot encoding features
+  
+  # We need to decide if we want to encode also activation.zone and 
+  # activation.channel, because in the test set there are entries with 
+  # activation.zone = 0, while in the training set the min value for it is 1
+  # Therefore, the fit on the test set won't work.
+  
+  #X[categorical_numeric_features] <- lapply(X[categorical_numeric_features],
+  #                                          as.character)
+  
+  dummy = dummyVars(~ payment.method + sex + vas1 + vas2
+                    ,data = X)
+  encoded_X <- predict(dummy, X)
+  
+  
+  X_without_cat_features <- rm_feature(X, categorical_features)
+  
+  X_one_hot <- cbind(X_without_cat_features,encoded_X)
+  return(X_one_hot)
+}
+```
+
+## TODO: try to fit KNN with cross validation reusing the code from last homework
+
+```{r}
+#Computes the RMSLE for the predicted y's
+RMSLE <- function(y_true, y_pred){
+  return(sqrt(sum (log(y_true+1) - log(y_pred + 1))^2))
+}
+```
+
+```{r}
+#Fits a KNN regression model with the specified K 
+fit_knn <- function(X_train, y_train, X_test, k_val){
+  y_hat = knn.reg(train = X_train, test=X_test, y=y_train, k = k_val)
+  y_hat = y_hat$pred
+  return(y_hat)
+}
+```
+
+
+```{r}
+X_train <- one_hot_encoding(train)
+X_test <- one_hot_encoding(test)
+y <- X_train$y
+
+fit <- lm( log(y+1) ~ . , data=X_train)
+yhat <- exp( predict(fit))-1
+yhat=pmax(0,yhat)
+
+RMSLE(y, yhat)
+
+```
+
+```{r}
+X_train_scaled <- rm_feature(X_train, c('y'))
+X_train_scaled <- as.data.frame(scale(X_train_scaled))
+
+
+y_hat <- fit_knn(X_train_scaled, log(y+1), X_train_scaled, 1)
+y_hat <- exp(y_hat) - 1
+y_hat=pmax(0,y_hat)
+RMSLE(y, y_hat)
+
+#KNN seems not to work :(
+# So, i guess its useless to run k-fold cv
+```
+
+
+
+
+
+
+
+
+
