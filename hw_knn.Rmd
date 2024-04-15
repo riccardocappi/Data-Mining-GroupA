@@ -1,0 +1,307 @@
+---
+title: "k-Fold Cross Validation with KNN"
+author: "Data Divas (Group A)"
+date: "2024-04-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# KNN Homework
+
+## Importing required libraries
+```{r warning=FALSE,message=FALSE}
+library(caret)
+library(ggplot2)
+library(dplyr)
+library(factoextra)
+library(FNN)
+library(reshape2)
+```
+
+## Exploratory Data Analysis (EDA)
+In this section we perform some data exploration activities, such as:
+
+- Quick view of the data summary
+- Check for categorical variables and any missing values
+
+### Import dataset
+```{r}
+data = read.csv("wineq_train.csv")
+summary(data)
+```
+We can see that variables like "free.sulfur.dioxide" and "total.sulfur.dioxide" have much higher values than others variables such as "citric.acid" and "volatile.acidity", so it would be a good practice to scale the data.
+
+### Checking for categorical predictors and null values
+```{r}
+str(data)
+```
+
+```{r}
+data[is.na(data)]
+```
+We can see that there are neither categorical predictors nor missing values in the dataset.
+
+
+## Fit KNN on training set and k-fold cross-validation
+In this section we perform KNN regression, trying different values of K, first on the whole training data, and then using k-fold cross validation. The procedure is done with respect to the following experimental settings:
+
+- without applying any pre-processing or feature engineering techniques
+- applying pre-processing and feature engineering techniques
+
+For each experiment, we compare the plots of the training and k-fold cross validation errors, and we show the value of K (K of KNN) which got the lowest CV error.
+
+### Helper functions
+The following chunks of code contain the main functions used to perform the experiments
+
+```{r}
+#Computes the RMSE for the predicted y's
+RMSE <- function(y_true, y_pred){
+  return(sqrt(mean((y_true - y_pred)^2)))
+}
+```
+
+```{r}
+# Returns the top_n features with least correlation with 
+# the response variable "quality"
+get_least_corr_vars <- function(X, top_n){
+  # Calculate correlation between features and "quality" 
+  # except for the pair "quality-quality"
+  quality_correlation <- cor(X$quality, X[, -which(names(X) == "quality")])
+  least_correlated_indexes <- order(abs(quality_correlation))
+  
+  least_correlated_features <- names(X)[least_correlated_indexes[1:top_n]]
+  return(least_correlated_features)
+}
+```
+
+```{r}
+# Removes from X the specified features
+rm_feature <- function(X,omitted_features){
+  X <- X[,!(names(X) %in% omitted_features) ]
+  return(X)
+}
+```
+
+```{r}
+#Fits a KNN regression model with the specified K 
+fit_knn <- function(X_train, y_train, X_test, k_val){
+  y_hat = knn.reg(train = X_train, test=X_test, y=y_train, k = k_val)
+  y_hat = y_hat$pred
+  return(y_hat)
+}
+```
+
+
+```{r}
+# Fits several KNN regressors, trying different values of K (1-50), on
+# the whole training set X. It returns a dataframe which associates to
+# each value of K its corresponding RMSE
+fit_knn_training_set <- function(X, y, k_range, perform_feature_sel){
+  train_rmse <- c()
+  if (perform_feature_sel){
+    X <- as.data.frame(scale(X))  
+    omitted_features <- get_least_corr_vars(X, 2)
+    X <- rm_feature(X, omitted_features)
+  }
+  X <- rm_feature(X, c("quality"))
+  
+  for (k in k_range){
+    y_hat = fit_knn(X, y, X, k)
+    train_rmse <- append(train_rmse, RMSE(y, y_hat))
+  }
+  
+  results_train_rmse <- data.frame(k = k_range, train_rmse=train_rmse)
+  return(results_train_rmse)
+}
+```
+
+
+```{r}
+# Performs k-fold-cross-validation trying several values of
+# K (K of KNN)
+k_fold_cv <- function(X, y, train_rmse, k_range, perform_feature_sel){
+  set.seed(42)
+  # we perform 5-fold cross-validation
+  folds <- createFolds(y, k = 5, list = TRUE)
+  cv_rmse <- c()
+
+  for (k in k_range){ 
+    cv_rmse_fold <- c()
+    #iterates through every fold
+    for (i in 1:length(folds)) { 
+      train_indexes <- unlist(folds[-i]) 
+      test_indexes <- unlist(folds[i])
+      
+      # splits data using the i-th fold as validation set, and the
+      # others folds as training set
+      X_train <- X[train_indexes, ]
+      y_train <- y[train_indexes]
+      X_test <- X[test_indexes, ]
+      y_test <- y[test_indexes]
+      
+      
+      if (perform_feature_sel){
+        # fits a scaler only on the training set and then applies it 
+        # on validation set
+        preproc <- preProcess(X_train, method = c("center", "scale"))
+        X_train <- predict(preproc, X_train)
+        X_test <- predict(preproc,X_test)
+        
+        X_train <- as.data.frame(X_train)
+        X_test <- as.data.frame(X_test)
+        
+        # gets the 2 least correlated features with "quality" using ONLY 
+        # the training set
+        omitted_features <- get_least_corr_vars(X_train, 2)
+        # remove omitted features from X_train
+        X_train <- rm_feature(X_train, omitted_features)
+        # remove features also from validation set
+        X_test <- rm_feature(X_test, omitted_features)
+      }
+      X_train <- rm_feature(X_train, c("quality"))
+      X_test <- rm_feature(X_test, c("quality")) 
+      
+      y_hat <- fit_knn(X_train, y_train, X_test, k)
+      # accumulates cv RMSE over the folds
+      cv_rmse_fold <- append(cv_rmse_fold, RMSE(y_test, y_hat))
+    }
+    # append to the cv_rmse array the mean error, 
+    # for the current K (K of KNN), computed over the folds
+    cv_rmse <- append(cv_rmse, mean(cv_rmse_fold)) 
+  }
+  results_kfold <- data.frame(k = k_range, train_rmse, cv_rmse = cv_rmse)
+  return(results_kfold)
+  
+}
+```
+
+
+An important comment for the "k_fold_cv" function defined above, which is the heart of the homework, is that any pre-processing and feature engineering on the data should be done ONLY on the training set inside the k-fold cross validation loop. Otherwise, we would face a data leakage problem. 
+
+In order to deal with this problem, we introduced a Boolean parameter called "perform_feature_sel", which determines if the function should perform some pre-processing and feature engineering. In our case, if "perform_feature_sel" is TRUE, we scale the data, we detect the 2 features with the least correlation with the response variable "quality", using ONLY the training set X_train, and we remove them both from training and validation set. Then, we fit the KNN model. Note that also the scaling of data is done by first fitting a scaler only on X_train and then applying it to the hold-out set X_test.
+
+The important part is that every data preparation is done only with respect to X_train, without considering X_test, in order to avoid data leakage. Then, the transformation is also applied to X_test.
+
+
+```{r}
+# Produces the plot of RMSE based on train data and k-fold 
+# cross-validation as a function of 1/K (K of KNN).
+# note that we used log(1/K) as x labels to have a better
+# visualization
+plot_training_cv_rmse <- function(results, train_rmse, cv_rmse){
+  ggplot(results, aes(x = log(1/k), y = train_rmse, color = "Train RMSE")) +
+  geom_line() +
+  geom_point() +
+  geom_line(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
+  geom_point(aes(x = log(1/k), y = cv_rmse, color = "CV RMSE")) +
+  scale_x_continuous(labels = scales::scientific_format()) +
+  labs(x = "log (1/K) (K of KNN)", y = "RMSE", color = "Data") +
+  theme_minimal()
+}
+```
+
+```{r}
+# Finds the value of K (K of KNN) for which the model has the
+# lowest cv error
+find_best_k <- function(cv_rmse){
+  minimum <- min(cv_rmse)
+  print(paste('min cv_rmse:',minimum))
+  print(paste('          k:', match( minimum , cv_rmse)))
+}
+```
+
+
+### KNN and CV without preprocessing and feature engineering
+In this experiment we perform k-fold cross validation without any pre-processing and feature engineering.
+```{r}
+X <- data
+y <- data$quality
+k_range = seq(1, 50, by = 1) #We try 50 values for K
+```
+
+First, we fit several KNN regressors, trying different values of K (1-50), on the whole training set. We expect to see a RMSE which decreases as the model becomes more flexible.
+```{r}
+results_train_rmse <- fit_knn_training_set(X, y, k_range, 
+                                           perform_feature_sel=FALSE)
+train_rmse <- results_train_rmse$train_rmse
+head(results_train_rmse,10)
+```
+Then, we perform 5-fold cross validation, using the same range (1-50) as before for the parameter K (K of KNN). We expect the CV RMSE to increase as the model becomes more flexible. 
+
+```{r}
+results_kfold <- k_fold_cv(X, y, train_rmse, k_range,
+                           perform_feature_sel = FALSE)
+cv_rmse = results_kfold$cv_rmse
+head(results_kfold,10)
+```
+
+### Plot
+```{r}
+plot_training_cv_rmse(results_kfold, train_rmse, cv_rmse)
+```
+
+From the plot above, we can see that as the model becomes more flexible, the training error decreases. However, the 5-fold cross validation error increases even if the training error is low. Therefore, in order to avoid overfitting, we should select the model with the lowest CV error, not the one with the lowest training error
+
+```{r}
+#It finds K (K of KNN) which got the lowest CV error
+find_best_k(cv_rmse)
+```
+
+
+### K-fold Cross Validation with pre-processing and feature engineering
+In this experiment, we perform 5-fold cross validation with some data pre-processing and feature engineering. 
+The 5-fold cv loop proceeds as follows, for each value of K (K of KNN):
+
+- it creates 5 folds by randomly splitting the dataset
+
+- it splits data using the i-th fold as validation set (X_test), and the others folds as training set (X_train)
+
+- since the parameter "perform_feature_sel" is TRUE, it performs feature selection. In particular, as we said before, it scales the data and detects the 2 features with the least correlation with the response variable "quality", using ONLY the training set (X_train), and it remove them both from training and validation set (X_test). Note that these computations are done using only X_train in order to avoid the data leakage problem, that is, knowledge of the hold-out set leaks into the dataset used to train the model.
+
+- it fits the KNN model on X_train and tests it against X_test
+
+- it accumulates the RMSE error for the current fold
+
+The final RMSE error (for the current K) is computed by averaging the RMSE errors computed over the 5 folds. 
+
+
+```{r}
+
+#Fitting knn on training set
+results_train_rmse_fe <- fit_knn_training_set(X, y, k_range,
+                                              perform_feature_sel = TRUE)
+train_rmse_fe = results_train_rmse_fe$train_rmse
+
+#Fitting knn with k-fold cross validation
+results_kfold_fe <- k_fold_cv(X, y, train_rmse_fe, k_range,
+                              perform_feature_sel = TRUE)
+cv_rmse_fe <- results_kfold_fe$cv_rmse
+
+plot_training_cv_rmse(results_kfold_fe, train_rmse_fe, cv_rmse_fe)
+
+```
+
+We can see that the training and k-fold CV errors show the same behavior as before.
+
+```{r}
+# Find best k
+find_best_k(cv_rmse_fe)
+```
+However, the estimated test error is lower in this case.
+
+## Conclusions
+In this homework we compared the behaviors of the training and k-fold cross validation errors when performing KNN regression with several flexibility degrees. The results show that, as the flexibility of the model increases (or equivalently as the number of neighbors decreases), the training RMSE decreases, while the CV error follows a kind of U-shaped function, with very high values for too flexible models. Note that the shape of the CV error does not strictly match the nice U-function shown in the book. We believe that this is because we only tried 50 values of K (for computational reasons), but if we were to increase the range of K, the CV error would probably increase a lot even for models with low flexibility.
+
+We noticed that scaling the data to have 0 mean and 1 standard deviation, and removing the 2 least correlated features with "quality" improved a lot the model's performances. Note that we performed these pre-processing and feature engineering computations only on the training set inside the k-fold cross validation loop, without looking at the validation set. This avoids the data leakage problem, which could lead to incorrect estimate of the test error.  
+
+
+
+
+
+
+
